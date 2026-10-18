@@ -52,7 +52,7 @@ static GameState state = STATE_TITLE;
 static int dialogueIndex = 0;
 static float cutsceneTimer = 0.0f;
 static float menuPulse = 0.0f;
-static Car player = {{240.0f, 205.0f}, -1.5708f, 0.0f, 115.0f, 78.0f, 2.7f};
+static Car player = {{190.0f, 203.0f}, -2.20f, 0.0f, 115.0f, 78.0f, 2.7f};
 static float raceTime = 0.0f;
 static int roadHits = 0;
 static bool showHelp = true;
@@ -115,26 +115,97 @@ static void DrawCar(Vector2 p, float angle, Color body, bool headlights) {
     }
 }
 
-static void DrawRoadMarkings(void) {
-    /* A winding two-lane county road, designed as a compact first driving slice. */
-    Vector2 pts[] = {
-        {215, 286}, {215, 235}, {196, 208}, {173, 181}, {169, 145},
-        {190, 113}, {222, 96}, {274, 92}, {320, 74}, {350, 42}, {359, -18}
+
+/* Smooth centerline for the first Ashwick county-road section. */
+static const Vector2 roadAnchors[] = {
+    {215, 286}, {215, 250}, {208, 224}, {190, 203},
+    {174, 181}, {169, 157}, {174, 137}, {190, 119},
+    {214, 106}, {242, 99}, {274, 96}, {303, 87},
+    {326, 69}, {344, 43}, {354, 12}, {359, -18}
+};
+
+static Vector2 RoadPoint(float t) {
+    const int count = (int)(sizeof(roadAnchors) / sizeof(roadAnchors[0]));
+    t = ClampF(t, 0.0f, 1.0f);
+
+    float scaled = t * (float)(count - 1);
+    int i = (int)scaled;
+    float u = scaled - (float)i;
+
+    if (i >= count - 1) {
+        i = count - 2;
+        u = 1.0f;
+    }
+
+    Vector2 p0 = roadAnchors[i > 0 ? i - 1 : i];
+    Vector2 p1 = roadAnchors[i];
+    Vector2 p2 = roadAnchors[i + 1];
+    Vector2 p3 = roadAnchors[i + 2 < count ? i + 2 : i + 1];
+
+    float u2 = u * u;
+    float u3 = u2 * u;
+
+    Vector2 p = {
+        0.5f * ((2*p1.x) + (-p0.x+p2.x)*u
+        + (2*p0.x-5*p1.x+4*p2.x-p3.x)*u2
+        + (-p0.x+3*p1.x-3*p2.x+p3.x)*u3),
+        0.5f * ((2*p1.y) + (-p0.y+p2.y)*u
+        + (2*p0.y-5*p1.y+4*p2.y-p3.y)*u2
+        + (-p0.y+3*p1.y-3*p2.y+p3.y)*u3)
     };
-    for (int i = 0; i < (int)(sizeof(pts)/sizeof(pts[0])) - 1; ++i) {
-        DrawLineEx(pts[i], pts[i+1], 39.0f, C_ROADEDGE);
-        DrawLineEx(pts[i], pts[i+1], 35.0f, C_ASPHALT);
+    return p;
+}
+
+static float RoadDistance(Vector2 point) {
+    float best = 1000000.0f;
+    Vector2 a = RoadPoint(0.0f);
+
+    for (int i = 1; i <= 240; ++i) {
+        Vector2 b = RoadPoint((float)i / 240.0f);
+        float dx = b.x - a.x;
+        float dy = b.y - a.y;
+        float len2 = dx*dx + dy*dy;
+        float u = 0.0f;
+
+        if (len2 > 0.0001f) {
+            u = ((point.x-a.x)*dx + (point.y-a.y)*dy) / len2;
+            u = ClampF(u, 0.0f, 1.0f);
+        }
+
+        float ex = point.x - (a.x + u*dx);
+        float ey = point.y - (a.y + u*dy);
+        float d = sqrtf(ex*ex + ey*ey);
+        if (d < best) best = d;
+        a = b;
     }
-    /* Broken centerline: short marks along the main visible road sections. */
-    for (int i = 0; i < 6; ++i) {
-        float y = 250.0f - i * 25.0f;
-        float x = 215.0f - (i > 1 ? (i-1)*5.5f : 0.0f);
-        DrawRectangle((int)x, (int)y, 2, 9, (Color){ 191, 179, 132, 255 });
+
+    return best;
+}
+
+static void DrawRoadMarkings(void) {
+    const int segments = 220;
+    Vector2 previous = RoadPoint(0.0f);
+
+    /* Draw edge first, then asphalt, so the border stays consistent. */
+    for (int i = 1; i <= segments; ++i) {
+        Vector2 next = RoadPoint((float)i / (float)segments);
+        DrawLineEx(previous, next, 40.0f, C_ROADEDGE);
+        DrawLineEx(previous, next, 35.0f, C_ASPHALT);
+        previous = next;
     }
-    for (int i = 0; i < 5; ++i) {
-        float y = 157.0f - i * 13.0f;
-        float x = 170.0f + i * 4.0f;
-        DrawRectangle((int)x, (int)y, 2, 7, (Color){ 191, 179, 132, 255 });
+
+    /* Short dashed centerline follows the curve rather than the screen. */
+    for (float t = 0.015f; t < 0.98f; t += 0.065f) {
+        Vector2 a = RoadPoint(t);
+        Vector2 b = RoadPoint(fminf(t + 0.027f, 1.0f));
+        DrawLineEx(a, b, 1.25f, (Color){191, 179, 132, 235});
+    }
+
+    /* Subtle damp reflections, also aligned to the road direction. */
+    for (float t = 0.08f; t < 0.96f; t += 0.105f) {
+        Vector2 a = RoadPoint(t);
+        Vector2 b = RoadPoint(fminf(t + 0.018f, 1.0f));
+        DrawLineEx(a, b, 1.0f, (Color){103, 132, 145, 95});
     }
 }
 
@@ -251,18 +322,33 @@ static void UpdateCar(float dt) {
     player.speed *= (1.0f - 0.42f * dt);
     player.speed = ClampF(player.speed, -32.0f, player.maxSpeed);
 
-    float speedFactor = 0.18f + 0.82f * ClampF(fabsf(player.speed) / player.maxSpeed, 0.0f, 1.0f);
-    player.angle += steer * player.turnRate * speedFactor * dt * (player.speed >= 0 ? 1.0f : -1.0f);
+    float speedFactor = 0.18f + 0.82f *
+        ClampF(fabsf(player.speed) / player.maxSpeed, 0.0f, 1.0f);
+    player.angle += steer * player.turnRate * speedFactor * dt *
+        (player.speed >= 0 ? 1.0f : -1.0f);
 
     Vector2 old = player.pos;
     player.pos.x += cosf(player.angle) * player.speed * dt * 0.54f;
     player.pos.y += sinf(player.angle) * player.speed * dt * 0.54f;
 
-    /* Keep the first prototype within the playable view. Later tracks will use track collision. */
-    if (player.pos.x < 8 || player.pos.x > INTERNAL_W-8 || player.pos.y < 8 || player.pos.y > INTERNAL_H-8) {
+    /* Keep the car in the viewport. */
+    if (player.pos.x < 8 || player.pos.x > INTERNAL_W-8 ||
+        player.pos.y < 8 || player.pos.y > INTERNAL_H-8) {
         player.pos = old;
         player.speed *= -0.24f;
         roadHits++;
+        return;
+    }
+
+    /* The asphalt is 35 pixels wide. Slow the car near its edge and
+       reject movement that would carry its center off the road. */
+    float distance = RoadDistance(player.pos);
+    if (distance > 14.0f) {
+        player.pos = old;
+        player.speed *= -0.18f;
+        roadHits++;
+    } else if (distance > 10.5f) {
+        player.speed *= (1.0f - 0.8f * dt);
     }
 }
 
