@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+# C / raylib build artifacts
+/build/
+/redline
+
+# Python virtual environments
+.venv310/
