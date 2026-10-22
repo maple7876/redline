@@ -1,4 +1,5 @@
 # REDLINE
+<img width="1988" height="1272" alt="image" src="https://github.com/user-attachments/assets/78d005e8-240d-4d52-aeb5-197ce60199c4" />
 
 REDLINE is a top-down arcade racing game built in C using raylib. I wanted to make something that feels fast, fun, and actually worth playing, with different cars, tracks, game modes, and stuff to unlock as you keep playing.
 
